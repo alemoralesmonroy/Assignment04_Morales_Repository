@@ -3,6 +3,7 @@ from dataclasses import dataclass, asdict
 import time
 from typing import Literal, Optional
 import numpy as np
+import dask
 import dask.array as da
 from dask.distributed import Client, get_task_stream, performance_report
 
@@ -32,6 +33,31 @@ class DistributedMetrics:
         return asdict(self)
 
 
+def _scatter_matrix_blocks(
+    client: Client,
+    matrix: np.ndarray,
+    row_splits: list[slice],
+    col_splits: list[slice],
+) -> da.Array:
+    block_rows = []
+    for r_sl in row_splits:
+        row_futures = []
+        for c_sl in col_splits:
+            sub_block = np.ascontiguousarray(matrix[r_sl, c_sl])
+            fut = client.scatter(sub_block, hash=False)
+            delayed_blk = dask.delayed(fut)
+            row_futures.append(
+                da.from_delayed(delayed_blk, shape=sub_block.shape, dtype=matrix.dtype)
+            )
+        block_rows.append(row_futures)
+    return da.block(block_rows)
+
+
+def _build_slices(n: int, divisions: int) -> list[slice]:
+    step = max(1, int(np.ceil(n / divisions)))
+    return [slice(start, min(start + step, n)) for start in range(0, n, step)]
+
+
 def run_distributed_matmul(
     client: Client,
     a: np.ndarray,
@@ -47,13 +73,14 @@ def run_distributed_matmul(
 
     t0_setup = time.perf_counter()
     if strategy == "1d_row_broadcast":
-        chunk_rows = max(1, int(np.ceil(n / divisions)))
-        da_a = da.from_array(a, chunks=(chunk_rows, n))
-        da_b = da.from_array(b, chunks=(n, n))
+        row_slices = _build_slices(n, divisions)
+        full_slice = [slice(0, n)]
+        da_a = _scatter_matrix_blocks(client, a, row_slices, full_slice)
+        da_b = _scatter_matrix_blocks(client, b, full_slice, full_slice)
     elif strategy == "2d_block":
-        chunk_dim = max(1, int(np.ceil(n / divisions)))
-        da_a = da.from_array(a, chunks=(chunk_dim, chunk_dim))
-        da_b = da.from_array(b, chunks=(chunk_dim, chunk_dim))
+        grid_slices = _build_slices(n, divisions)
+        da_a = _scatter_matrix_blocks(client, a, grid_slices, grid_slices)
+        da_b = _scatter_matrix_blocks(client, b, grid_slices, grid_slices)
     else:
         raise ValueError(f"Unsupported partitioning strategy: {strategy}")
 
