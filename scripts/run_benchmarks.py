@@ -29,7 +29,6 @@ def summarize_times(times: list[float]) -> dict[str, float]:
 def benchmark_baselines(data_dir: Path, results_dir: Path, runs: int, max_workers: int) -> None:
     rows = []
 
-    # 1. Pure Python O(N^3) triple-loop reference on small sizes
     for n in (250, 500):
         a = np.load(data_dir / f"A_{n}.npy")
         b = np.load(data_dir / f"B_{n}.npy")
@@ -50,12 +49,10 @@ def benchmark_baselines(data_dir: Path, results_dir: Path, runs: int, max_worker
         })
         print(f"[Baseline Triple-Loop] N={n} -> median={stats['median_s']:.4f}s")
 
-    # 2. NumPy single-thread BLAS & Shared-memory ThreadPool on common sizes
     for n in (500, 1000, 2000):
         a = np.load(data_dir / f"A_{n}.npy")
         b = np.load(data_dir / f"B_{n}.npy")
 
-        # Warmup
         _ = sequential_numpy(a, b)
 
         seq_times = []
@@ -94,7 +91,6 @@ def benchmark_baselines(data_dir: Path, results_dir: Path, runs: int, max_worker
             f"ParShared({max_workers})={par_stats['median_s']:.4f}s"
         )
 
-    # 3. Distributed Dask on common sizes (P=max_workers)
     cluster = LocalCluster(
         n_workers=max_workers,
         threads_per_worker=1,
@@ -107,7 +103,6 @@ def benchmark_baselines(data_dir: Path, results_dir: Path, runs: int, max_worker
             a = np.load(data_dir / f"A_{n}.npy")
             b = np.load(data_dir / f"B_{n}.npy")
             for strategy in ("1d_row_broadcast", "2d_block"):
-                # Warmup
                 _, _ = run_distributed_matmul(
                     client, a, b, strategy=strategy, num_workers=max_workers
                 )
@@ -169,7 +164,6 @@ def benchmark_scaling(
         )
         client = Client(cluster)
         try:
-            # --- STRONG SCALING (Fixed N=strong_n) ---
             for strategy in ("1d_row_broadcast", "2d_block"):
                 _, _ = run_distributed_matmul(
                     client, a_strong, b_strong, strategy=strategy, num_workers=p
@@ -218,7 +212,6 @@ def benchmark_scaling(
                     f"transfer_sum={df_runs['task_transfer_sum_s'].median():.4f}s)"
                 )
 
-            # --- WEAK SCALING (Cubic work per worker constant: N(P) = N_1 * P^(1/3)) ---
             n_weak = int(round(weak_base_n * (p ** (1.0 / 3.0))))
             a_weak = np.load(data_dir / f"A_{n_weak}.npy")
             b_weak = np.load(data_dir / f"B_{n_weak}.npy")
@@ -265,7 +258,6 @@ def benchmark_scaling(
     df_strong = pd.DataFrame(strong_rows)
     df_weak = pd.DataFrame(weak_rows)
 
-    # Add speedup & efficiency columns relative to P=1 per strategy
     for df in (df_strong, df_weak):
         base_map = (
             df[df["num_workers"] == 1]

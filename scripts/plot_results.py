@@ -81,7 +81,6 @@ def plot_strong_scaling(df: pd.DataFrame, out_dir: Path) -> None:
         "2d_block": ("2D Block Partitioning", "#d32f2f", "s", "-"),
     }
 
-    # Ideal reference
     ax1.plot(workers, workers, linestyle=":", color="gray", label="Ideal Linear Speedup")
     ax2.axhline(1.0, linestyle=":", color="gray", label="Ideal Efficiency (100%)")
 
@@ -218,7 +217,6 @@ def plot_overhead_and_overlap(df: pd.DataFrame, out_dir: Path) -> None:
     ax1.set_ylabel("Wall-Clock Time (s)")
     ax1.legend(fontsize=8)
 
-    # Panel 2: Cumulative overlapping task transfer time vs wall-clock compute
     for strat, label, color, marker in [
         ("1d_row_broadcast", "1D Row: Cumulative Task Transfer (Overlapped)", "#f57c00", "o"),
         ("2d_block", "2D Block: Cumulative Task Transfer (Overlapped)", "#d32f2f", "s"),
